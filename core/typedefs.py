@@ -3,9 +3,14 @@ from random import randint
 import json
 import random
 import pathlib
-from playsound import playsound
-import shutil
+import pygame as pg
+import keyboard
+import time
+from tinytag import TinyTag
+import math
 import os
+
+pg.mixer.init()
 
 
 class Item:
@@ -16,12 +21,12 @@ class Item:
     def __init__(
         self,
         filename: pathlib.Path | str,
-        time_long: float,
         name: str | None = None,
         weight: float = 100.0,
+        time_long: float | None = None,
     ):
         self._id: int = randint(Item.ID_MIN, Item.ID_MAX)
-        self.time_long: float = time_long  # in seconds
+
         self.weight: float = weight
 
         if isinstance(filename, str):
@@ -33,6 +38,15 @@ class Item:
             self.name: str = self.filename.stem
         else:
             self.name: str = name
+
+        if time_long is None:
+            tag = TinyTag.get(self.filename)
+            self.time_long: float = tag.duration or -1
+            if self.time_long == -1:
+                mylogger.error(f"无法获取{self.filename}的时长")
+                raise ValueError("无法获取时长")
+        else:
+            self.time_long: float = time_long
 
     def get_id(self) -> int:
         return self._id
@@ -63,30 +77,33 @@ class Item:
     def play(self):
         mylogger.debug("正在播放: %s" % self.filename)
 
-        # 不能有中文路径, 所以移动到temp目录,文件名用id
-        # 获取环境变量TEMP
-        temp_dir = os.getenv("TEMP")
-        if temp_dir is None:
-            temp_dir = os.path.expanduser("~")  # 使用主目录作为默认临时目录
-        else:
-            temp_dir = pathlib.Path(temp_dir)
-
-        temp_file = f"{temp_dir}/{self.get_id()}.{self.filename.suffix}"
-        mylogger.debug("临时文件: %s" % temp_file)
-
-        shutil.copy(self.filename, temp_file)
-        playsound(str(temp_file))
-        os.remove(temp_file)
+        pg.mixer.init()
+        pg.mixer.music.load(self.filename)
+        pg.mixer.music.play()
+        while pg.mixer.music.get_busy():
+            time.sleep(0.1)
 
 
 class PlaylistBase:
-    def __init__(self, name: str, items: list[Item] | None = None):
+    def __init__(
+        self, name: str, items: list[Item] | None = None, save_path: str | None = None
+    ):
         self.name: str = name
 
         if items is not None:
             self.gen_from_list(items)
         else:
             self.items: list[Item] = []
+
+        if save_path is not None:
+            if not save_path.endswith(".json"):
+                save_path += ".json"
+            if os.path.exists(save_path):
+                mylogger.error(f"文件{save_path}已存在, 可能覆盖原文件")
+                raise FileExistsError(f"文件{save_path}已存在")
+            self.save_path = save_path
+        else:
+            self.save_path = f"playlist/playlist_{self.name}.json"
 
     def add_item(self, item: Item):
         self.items.append(item)
@@ -96,21 +113,40 @@ class PlaylistBase:
         self._check_ids_not_same_and_fix()
 
     def to_json(self):
-        print([item.__dict__ for item in self.items])
-        print("||||| ", [item.to_json() for item in self.items])
-        return json.dumps([item.to_json() for item in self.items])
+        mylogger.debug([item.__dict__ for item in self.items])
+        mylogger.debug("||||| ".join([item.to_json() for item in self.items]))
+        return json.dumps(
+            [
+                {
+                    "id": item.get_id(),
+                    "filename": str(item.filename),
+                    "name": item.name,
+                    "time_long": item.time_long,
+                    "weight": item.weight,
+                }
+                for item in self.items
+            ]
+        )
 
     def from_json(self, json_str: str):
         items = json.loads(json_str)
+        for item in items:
+            del item["id"]
         self.gen_from_list([Item(**item) for item in items])
 
-    def save_to_file(self, file_path: str):
-        with open(file_path, "w", encoding="utf-8") as f:
+    def save_to_file(self):
+        if not os.path.exists(os.path.dirname(self.save_path)):
+            os.makedirs(os.path.dirname(self.save_path))
+        with open(self.save_path, "w", encoding="utf-8") as f:
             f.write(self.to_json())
+        return self
 
-    def load_from_file(self, file_path: str):
-        with open(file_path, "r", encoding="utf-8") as f:
+    def load_from_file(self):
+        if not os.path.exists(os.path.dirname(self.save_path)):
+            os.makedirs(os.path.dirname(self.save_path))
+        with open(self.save_path, "r", encoding="utf-8") as f:
             self.from_json(f.read())
+        return self
 
     def _check_ids_not_same_and_fix(self):
         """
@@ -130,6 +166,24 @@ class PlaylistBase:
 
         self.items = sorted_items.copy()
 
+    def gen_from_dir(self, dir_path: str, ext: str = "mp3"):
+        """
+        从目录中生成播放列表
+        """
+        items = []
+        for file in pathlib.Path(dir_path).glob(f"*.{ext}"):
+            try:
+                item = Item(file)
+                items.append(item)
+            except ValueError:
+                mylogger.warning(f"无法获取{file}的时长, 跳过")
+
+        self.gen_from_list(items)
+
+    def change_weight_and_save(self, item: Item, weight: float):
+        item.weight = weight
+        self.save_to_file()
+
     def __str__(self):
         s = f"{self.name} ({len(self.items)} items):"
         for i, itm in enumerate(self.items):
@@ -141,15 +195,67 @@ class PlaylistBase:
 
 
 class Playlist(PlaylistBase):
-    def __init__(self, name: str, items: list[Item] | None = None):
-        super().__init__(name, items)
+    def __init__(
+        self,
+        name: str,
+        items: list[Item] | None = None,
+        save_path: str | None = None,
+    ):
+        super().__init__(
+            name,
+            items=items,
+            save_path=save_path,
+        )
 
     def random_recommend(self) -> Item:
-        return random.choices(
-            self.items,
-            weights=[item.weight for item in self.items],
-        )[0]
+        return random.choices(self.items, weights=[item.weight for item in self.items])[
+            0
+        ]
 
     def play_one(self):
         item = self.random_recommend()
         item.play()
+
+    def play_all(self):
+        def on_key_pressed(event):
+            if event.name == "space" and event.event_type == keyboard.KEY_DOWN:
+                pg.mixer.music.stop()
+
+        keyboard.hook(on_key_pressed)
+        while True:
+            itm = self.random_recommend()
+            start_time = time.time()
+            itm.play()
+            end_time = time.time()
+            prg = (end_time - start_time) / itm.time_long * 100
+            mylogger.debug(f"播放进度: {prg:.2f}%")
+
+            self.upgrade_item_weight(itm, prg)
+
+    def upgrade_item_weight(
+        self, item: Item, prg: float, eta: float = 1, alpha: float = math.e
+    ):
+        """
+        更新权重
+        此算法由 Fexcode 编写
+        """
+        original_weight = item.weight
+
+        prg = round(prg, 2) + 0.01  # 避免prg为0
+
+        avg_weight = sum([item.weight for item in self.items]) / len(self.items)
+
+        pred = 100 * (item.weight / (avg_weight + item.weight))
+        d = prg - pred
+
+        dW = (
+            d * min(eta, original_weight) * math.log((1 / pred + alpha), alpha)
+        )  # 权重过低更新就更慢一点
+
+        if (new_weight := (item.weight + dW)) <= 0:
+            self.change_weight_and_save(item, 0.01)
+        else:
+            self.change_weight_and_save(item, new_weight)
+
+        mylogger.debug(f"预期prg: {pred:.2f}, 实际prg: {prg:.2f}, dW: {dW:.2f}")
+        mylogger.debug(f"更新{item.name}的权重: {original_weight}->{item.weight:.2f}")

@@ -2,18 +2,13 @@ from core import *
 
 
 def main():
-    item = Item(time_long=10.5, filename=r".\test_musics\0001.周杰伦-夜曲.mp3")
-    # print(item)
-    item2 = Item(time_long=10.5, filename=r".\test_musics\0013.周杰伦-暗号.mp3")
-    # print(item2)
-
-    playlist = Playlist(name="test_playlist")
-    playlist.gen_from_list([item, item2])
+    playlist = Playlist(name="test_playlist").load_from_file()
+    playlist.gen_from_dir("./test_musics/test")
     print(playlist)
 
-    playlist.save_to_file("playlist.json")
+    playlist.save_to_file()
 
-    playlist.play_one()
+    playlist.play_all()
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
- "pyinstaller>=6.14.1",
+    "playsound==1.2.2",
 ]
 
 [[tool.uv.index]]

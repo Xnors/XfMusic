@@ -11,3 +11,8 @@ wheels/
 
 *.build
 *.dist
+
+*.mp3
+*.rar
+
+./playlist.json

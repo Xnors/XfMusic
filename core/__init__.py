@@ -1,5 +1,9 @@
 from .typedefs import Item, Playlist
-from .logger import logger
+from .logger import mylogger
 
 
-__all__ = ["Item", "Playlist", "logger"]
+__all__ = [
+    "Item",
+    "Playlist",
+    "mylogger",
+]

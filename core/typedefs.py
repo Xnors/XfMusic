@@ -10,7 +10,7 @@ from tinytag import TinyTag
 import math
 import os
 
-pg.mixer.init()
+# pg.mixer.init()
 
 
 class Item:
@@ -75,7 +75,7 @@ class Item:
         )
 
     def play(self):
-        mylogger.debug("正在播放: %s" % self.filename)
+        mylogger.info("正在播放: %s" % self.filename)
 
         pg.mixer.init()
         pg.mixer.music.load(self.filename)
@@ -113,8 +113,6 @@ class PlaylistBase:
         self._check_ids_not_same_and_fix()
 
     def to_json(self):
-        mylogger.debug([item.__dict__ for item in self.items])
-        mylogger.debug("||||| ".join([item.to_json() for item in self.items]))
         return json.dumps(
             [
                 {
@@ -217,9 +215,26 @@ class Playlist(PlaylistBase):
         item.play()
 
     def play_all(self):
+        has_pressed_capslock = False
+        pressed_capslock_time = 0
+
         def on_key_pressed(event):
-            if event.name == "space" and event.event_type == keyboard.KEY_DOWN:
-                pg.mixer.music.stop()
+            # 1s内双击capslock时切歌
+            if event.name == "caps lock" and event.event_type == keyboard.KEY_DOWN:
+                nonlocal has_pressed_capslock
+                nonlocal pressed_capslock_time
+
+                if not has_pressed_capslock:
+                    mylogger.info("再按一次CapsLock切歌")
+                    has_pressed_capslock = True
+                    pressed_capslock_time = time.time()
+                else:
+                    if time.time() - pressed_capslock_time < 1:
+                        pg.mixer.music.stop()
+                    has_pressed_capslock = False
+                    mylogger.info(
+                        "想切歌要连续按两下CapsLock, 你按得太慢了, 快一点呢?"
+                    )
 
         keyboard.hook(on_key_pressed)
         while True:

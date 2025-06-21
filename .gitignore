@@ -15,4 +15,9 @@ wheels/
 *.mp3
 *.rar
 
-./playlist.json
+playlist
+test_musics
+
+cache
+*.exe
+playlist

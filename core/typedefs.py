@@ -3,12 +3,20 @@ from random import randint
 import json
 import random
 import pathlib
-import pygame as pg
+
+# import pygame as pg
 import keyboard
 import time
 from tinytag import TinyTag
 import math
 import os
+
+import sdl2
+import sdl2.ext
+import sdl2.sdlmixer
+
+sdl2.SDL_Init(sdl2.SDL_INIT_AUDIO)
+sdl2.sdlmixer.Mix_OpenAudio(44100, sdl2.sdlmixer.MIX_DEFAULT_FORMAT, 2, 1024)
 
 # pg.mixer.init()
 
@@ -74,14 +82,34 @@ class Item:
             }
         )
 
+    def get_song(self):
+        return sdl2.sdlmixer.Mix_LoadMUS(str(self.filename).encode())
+
     def play(self):
         mylogger.info("正在播放: %s" % self.filename)
 
-        pg.mixer.init()
-        pg.mixer.music.load(self.filename)
-        pg.mixer.music.play()
-        while pg.mixer.music.get_busy():
+        # pg.mixer.init()
+        # pg.mixer.music.load(self.filename)
+        # pg.mixer.music.play()
+        # while pg.mixer.music.get_busy():
+        #     time.sleep(0.1)
+        music = self.get_song()
+        if not music:
+            mylogger.error(f"无法加载音频文件{self.filename}")
+            sdl2.SDL_Quit()
+            return
+
+        sdl2.sdlmixer.Mix_PlayMusic(music, 1)  # 播放音乐
+
+        while sdl2.sdlmixer.Mix_PlayingMusic():
             time.sleep(0.1)
+
+        sdl2.sdlmixer.Mix_HaltMusic()  # 停止播放
+        sdl2.sdlmixer.Mix_FreeMusic(music)  # 释放音乐
+
+        # 退出 SDL
+        sdl2.sdlmixer.Mix_CloseAudio()
+        sdl2.SDL_Quit()
 
 
 class PlaylistBase:
@@ -168,6 +196,9 @@ class PlaylistBase:
         """
         从目录中生成播放列表
         """
+        mylogger.info(f"正在从{dir_path}中生成播放列表, 请稍等")
+        mylogger.info(f"文件扩展名: {ext}")
+
         items = []
         for file in pathlib.Path(dir_path).glob(f"*.{ext}"):
             try:
@@ -217,30 +248,57 @@ class Playlist(PlaylistBase):
     def play_all(self):
         has_pressed_capslock = False
         pressed_capslock_time = 0
+        item_music = None
 
         def on_key_pressed(event):
-            # 1s内双击capslock时切歌
-            if event.name == "caps lock" and event.event_type == keyboard.KEY_DOWN:
-                nonlocal has_pressed_capslock
-                nonlocal pressed_capslock_time
+            TWICE_PRESSING_TIME=0.8
 
+            nonlocal item_music
+            nonlocal has_pressed_capslock
+            nonlocal pressed_capslock_time
+
+            # 0.6s内双击capslock时切歌
+            if event.name == "caps lock" and event.event_type == keyboard.KEY_DOWN:
                 if not has_pressed_capslock:
-                    mylogger.info("再按一次CapsLock切歌")
+                    mylogger.info(f"在{TWICE_PRESSING_TIME}s内再按一次CapsLock切歌")
                     has_pressed_capslock = True
                     pressed_capslock_time = time.time()
                 else:
-                    if time.time() - pressed_capslock_time < 1:
-                        pg.mixer.music.stop()
-                    has_pressed_capslock = False
-                    mylogger.info(
-                        "想切歌要连续按两下CapsLock, 你按得太慢了, 快一点呢?"
-                    )
+                    pressed_casplock_twice_in_time = (
+                        time.time() - pressed_capslock_time
+                    ) <= TWICE_PRESSING_TIME
+
+                    if pressed_casplock_twice_in_time:
+                        if item_music is None:
+                            mylogger.error("还没有播放任何音乐")
+                            return
+                        sdl2.sdlmixer.Mix_HaltMusic()  # 停止播放
+                        sdl2.sdlmixer.Mix_FreeMusic(item_music)  # 释放音乐
+                        item_music = None
+                        has_pressed_capslock = False
+                        return
+                    else:
+                        has_pressed_capslock = False
+                        mylogger.info("想切歌要连续按两下CapsLock, 你按得太慢了, 快一点呢? 再试一次: 双击CapsLock!")
 
         keyboard.hook(on_key_pressed)
         while True:
             itm = self.random_recommend()
             start_time = time.time()
-            itm.play()
+
+            # 加载并播放音乐
+            mylogger.info(f"正在播放: {itm.name}")
+            item_music = itm.get_song()
+            if not item_music:
+                mylogger.error(f"无法加载音频文件{itm.filename}")
+                sdl2.SDL_Quit()
+                return
+            sdl2.sdlmixer.Mix_PlayMusic(item_music, 1)  # 播放音乐
+            while sdl2.sdlmixer.Mix_PlayingMusic():
+                time.sleep(0.1)
+            sdl2.sdlmixer.Mix_HaltMusic()  # 停止播放
+            sdl2.sdlmixer.Mix_FreeMusic(item_music)  # 释放音乐
+
             end_time = time.time()
             prg = (end_time - start_time) / itm.time_long * 100
             mylogger.debug(f"播放进度: {prg:.2f}%")

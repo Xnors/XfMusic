@@ -3,7 +3,6 @@ from random import randint
 import json
 import random
 import pathlib
-
 import pygame
 import keyboard
 import time
@@ -11,15 +10,7 @@ from tinytag import TinyTag
 import math
 import os
 
-# import sdl2
-# import sdl2.ext
-# import sdl2.sdl.mixer
-
-# sdl2.SDL_Init(sdl2.SDL_INIT_AUDIO)
-# sdl2.sdl.mixer.Mix_OpenAudio(44100, sdl2.sdl.mixer.MIX_DEFAULT_FORMAT, 2, 1024)
-
 pygame.mixer.init()
-
 
 
 class Item:
@@ -99,39 +90,17 @@ class Item:
         pygame.mixer.music.play()
         while pygame.mixer.music.get_busy():
             time.sleep(0.1)
-        # music = self.get_song()
-        # if not music:
-        #     mylogger.error(f"无法加载音频文件{self.filename}")
-        #     sdl2.SDL_Quit()
-        #     return
-
-        # sdl2.sdl.mixer.Mix_PlayMusic(music, 1)  # 播放音乐
-
-        # while sdl2.sdl.mixer.Mix_PlayingMusic():
-        #     time.sleep(0.1)
-
-        # sdl2.sdl.mixer.Mix_HaltMusic()  # 停止播放
-        # sdl2.sdl.mixer.Mix_FreeMusic(music)  # 释放音乐
-
-        # # 退出 SDL
-        # sdl2.sdl.mixer.Mix_CloseAudio()
-        # sdl2.SDL_Quit()
 
     def stop_playing(self):
-        # sdl2.sdl.mixer.Mix_HaltMusic()  # 停止播放
-        # sdl2.SDL_Quit()
         pygame.mixer.music.stop()
 
     def continue_playing(self):
-        # sdl2.sdl.mixer.Mix_PlayMusic(self.get_song(), 1)  # 播放音乐
         pygame.mixer.music.unpause()
 
     def get_pos(self):
-        # return self.get_song().pos
         return self.get_song().get_pos()
 
     def set_pos(self, pos: int):
-        # self.get_song().pos = pos
         self.get_song().set_pos(pos)
 
     def get_song(self):
@@ -143,7 +112,10 @@ class PlaylistBase:
         self, name: str, items: list[Item] | None = None, save_path: str | None = None
     ):
         self.name: str = name
+        self.update_info(items, save_path)
 
+
+    def update_info(self,items: list[Item] | None = None, save_path: str | None = None):
         if items is not None:
             self.gen_from_list(items)
         else:
@@ -182,9 +154,8 @@ class PlaylistBase:
 
     def from_json(self, json_str: str):
         items = json.loads(json_str)
-        
+
         self.gen_from_list([Item(**item) for item in items])
-        
 
     def save_to_file(self):
         if not os.path.exists(os.path.dirname(self.save_path)):
@@ -237,12 +208,22 @@ class PlaylistBase:
             except ValueError:
                 mylogger.warning(f"无法获取{file}的时长, 跳过")
 
-        return self
+        self.gen_from_list(self.items)
 
-        self.gen_from_list(items)
+        return self
 
     def change_weight_and_save(self, item: Item, weight: float):
         item.weight = weight
+        self.save_to_file()
+
+    def rename(self, new_name: str):
+        if os.path.exists(self.save_path):
+            os.remove(self.save_path)
+            mylogger.info(f"已删除原文件{self.save_path}")
+        # self.save_path = f"playlist/playlist_{new_name}.json"
+
+        self.update_info(items=self.items)
+        
         self.save_to_file()
 
     def __str__(self):
@@ -253,6 +234,22 @@ class PlaylistBase:
 
     def __repr__(self):
         return self.__str__()
+    
+    def exists(self):
+        return os.path.exists(self.save_path)
+
+    @staticmethod
+    def get_playlist_list():
+        """
+        获取所有播放列表的名称
+        """
+        if not os.path.exists("playlist"):
+            os.makedirs("playlist")
+            mylogger.warning("没有找到playlist目录, 已创建")
+        return [
+            file.stem[len("playlist_") :]
+            for file in pathlib.Path("playlist").glob("*.json")
+        ]
 
 
 class Playlist(PlaylistBase):
@@ -269,16 +266,18 @@ class Playlist(PlaylistBase):
         )
 
     def random_recommend(self) -> Item:
-        return random.choices(self.items, weights=[item.weight*0.01 for item in self.items],k=1)[
-            0
-        ]
-
+        return random.choices(
+            self.items, weights=[item.weight * 0.01 for item in self.items], k=1
+        )[0]
 
     def play_one(self):
         item = self.random_recommend()
         item.play()
 
     def play_all(self):
+        if len(self.items) == 0:
+            mylogger.error("播放列表为空")
+            return
         has_pressed_capslock = False
         pressed_capslock_time = 0
         item_music = None

@@ -7,6 +7,7 @@ from tinytag import TinyTag
 import keyboard
 import pygame
 
+pygame.mixer.init()
 
 class MusicPlayer:
     """音乐播放器核心逻辑"""
@@ -14,21 +15,19 @@ class MusicPlayer:
     def __init__(self):
         try:
             self.playlist = (
-                core.Playlist("test_playlist3")
-                .gen_from_dir("./test_musics/")
-                .save_to_file()
+                core.Playlist("current").load_from_file()
+                if core.Playlist("current").exists()
+                else core.Playlist("空播放列表", items=list())
             )
             self.current_song = None
             self.is_playing = True  # 默认自动播放
-            self.progress = 0
+            self.progress: float = 0.0
             self.last_song_id = None  # 记录上一首歌ID
             self.last_song_start_time = 0  # 记录上一首歌开始播放时间
-
-            # # 初始化第一首歌
-            # self.current_song = self.get_random_song()
-            # pygame.mixer.music.load(str(self.current_song.filename))
-            self.play_song(self.get_random_song())
-            mylogger.info("MusicPlayer initialized successfully")
+            
+            if self.playlist.items:
+                self.play_song(self.get_random_song())
+                mylogger.info("MusicPlayer initialized successfully")
         except Exception as e:
             mylogger.error(f"Failed to initialize MusicPlayer: {e}")
             raise
@@ -53,7 +52,6 @@ class MusicPlayer:
 
         if self.current_song is not None:
             pygame.mixer.music.stop()
-        
 
         self.current_song = song
         pygame.mixer.music.load(str(self.current_song.filename))
@@ -140,18 +138,18 @@ class MusicPlayer:
         try:
             if self.current_song:
                 tag = TinyTag.get(str(self.current_song.filename))
-                return tag.duration
-            return 0
+                return tag.duration or 0.0
+            return 0.0
         except Exception as e:
             mylogger.error(f"Failed to get duration: {e}")
-            return 0
+            return 0.0
 
 
 class PlayerGUI:
     """播放器GUI界面"""
 
     def __init__(self, player):
-        self.player = player
+        self.player: MusicPlayer = player
         self.root = tk.Tk()
         self.root.title("简易音乐播放器")
         self.root.geometry("600x400")
@@ -163,37 +161,151 @@ class PlayerGUI:
     def create_menu(self):
         """创建菜单栏"""
         menubar = tk.Menu(self.root)
-        
+
         # 文件菜单
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label="从目录导入", command=self.import_from_directory)
+        file_menu.add_command(label="选择播放列表", command=self.show_playlist_dialog)
+        file_menu.add_command(label="重命名播放列表", command=self.rename_playlist)
         file_menu.add_separator()
         file_menu.add_command(label="退出", command=self.root.quit)
         menubar.add_cascade(label="文件", menu=file_menu)
-        
+
         self.root.config(menu=menubar)
+
+    def rename_playlist(self):
+        """重命名当前播放列表"""
+        if not self.player.playlist:
+            mylogger.warning("没有可重命名的播放列表")
+            return
+
+        # 创建重命名对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("重命名播放列表")
+        dialog.geometry("300x150")
+
+        # 输入框
+        ttk.Label(dialog, text="新播放列表名:").pack(pady=5)
+        new_name = tk.StringVar(value=self.player.playlist.name)
+        entry = ttk.Entry(dialog, textvariable=new_name)
+        entry.pack(pady=5, padx=10, fill=tk.X)
+
+        # 确认按钮
+        def on_rename():
+            try:
+                new_name_value = new_name.get().strip()
+                if new_name_value:
+                    self.player.playlist.rename(new_name_value)
+                    mylogger.info(f"播放列表已重命名为: {new_name_value}")
+                    dialog.destroy()
+
+            except Exception as e:
+                mylogger.error(f"重命名播放列表失败: {e}")
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=5)
+
+        ttk.Button(btn_frame, text="确认", command=on_rename).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="取消", command=dialog.destroy).pack(
+            side=tk.LEFT, padx=5
+        )
+
+    def show_playlist_dialog(self):
+        """显示播放列表选择对话框"""
+        try:
+            playlists = core.Playlist.get_playlist_list()
+            if not playlists:
+                mylogger.warning("没有可用的播放列表")
+                return
+
+            # 创建选择对话框
+            dialog = tk.Toplevel(self.root)
+            dialog.title("选择播放列表")
+            dialog.geometry("300x300")
+
+            # 播放列表列表
+            listbox = tk.Listbox(dialog, selectmode=tk.SINGLE)
+            listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+            for playlist in playlists:
+                listbox.insert(tk.END, playlist)
+
+            # 确认按钮
+            def on_select():
+                selection = listbox.curselection()
+                if selection:
+                    playlist_name = playlists[selection[0]]
+                    self.load_playlist(playlist_name)
+                    dialog.destroy()
+
+            btn_frame = ttk.Frame(dialog)
+            btn_frame.pack(pady=5)
+
+            ttk.Button(btn_frame, text="选择", command=on_select).pack(
+                side=tk.LEFT, padx=5
+            )
+            ttk.Button(btn_frame, text="取消", command=dialog.destroy).pack(
+                side=tk.LEFT, padx=5
+            )
+
+        except Exception as e:
+            mylogger.error(f"显示播放列表对话框失败: {e}")
+
+    def load_playlist(self, playlist_name):
+        """加载指定播放列表"""
+        try:
+            playlist = core.Playlist(playlist_name).load_from_file()
+            self.player.playlist = playlist
+
+            # 更新UI
+            self.listbox.delete(0, tk.END)
+            for song in playlist.items:
+                self.listbox.insert(tk.END, song.name)
+
+            # 重置当前歌曲
+            self.player.current_song = None
+            self.update_song_info()
+            mylogger.info(f"成功加载播放列表: {playlist_name}")
+
+            # 如果播放列表不为空，随机播放一首
+            if self.player.playlist.items:
+                self.player.play_song(self.player.get_random_song())
+                self.update_song_info()
+        except Exception as e:
+            mylogger.error(f"加载播放列表失败: {e}")
 
     def import_from_directory(self):
         """从目录导入歌曲"""
         from tkinter import filedialog
+        import os
+
         dir_path = filedialog.askdirectory(title="选择音乐目录")
         if dir_path:
             try:
+                # 显示加载状态
+                self.song_info.config(text="加载中...")
+                self.root.update()  # 强制刷新UI
+
+                # 从路径获取目录名作为播放列表名
+                dir_name = os.path.basename(dir_path)
                 # 创建新播放列表
-                new_playlist = core.Playlist("current_playlist").gen_from_dir(dir_path)
+                new_playlist = core.Playlist(dir_name).gen_from_dir(dir_path)
                 self.player.playlist = new_playlist
-                
+
                 # 更新UI
                 self.listbox.delete(0, tk.END)
                 for song in new_playlist.items:
                     self.listbox.insert(tk.END, song.name)
-                
+
                 # 重置当前歌曲
                 self.player.current_song = None
                 self.update_song_info()
-                mylogger.info(f"成功从目录导入歌曲: {dir_path}")
+                mylogger.info(f"成功从目录导入歌曲: {dir_path}，播放列表名: {dir_name}")
             except Exception as e:
+                self.song_info.config(text="导入失败")
                 mylogger.error(f"导入歌曲失败: {e}")
+            finally:
+                self.root.update()  # 确保UI刷新
 
     def create_widgets(self):
         """创建界面组件"""
@@ -243,8 +355,12 @@ class PlayerGUI:
         self.listbox.pack(fill=tk.BOTH, expand=True)
 
         # 填充歌曲列表(只显示歌曲名)
-        for song in self.player.playlist.items:
-            self.listbox.insert(tk.END, song.name)
+        if not self.player.playlist.items:
+            self.listbox.insert(tk.END, "无歌曲,点击左上角的文件按钮导入歌曲")
+            self.listbox.itemconfig(0, {'fg': 'gray', 'selectbackground': 'white', 'selectforeground': 'gray'})
+        else:
+            for song in self.player.playlist.items:
+                self.listbox.insert(tk.END, song.name)
 
         # 绑定双击事件
         self.listbox.bind("<Double-Button-1>", self.on_song_select)
@@ -328,7 +444,9 @@ class PlayerGUI:
 
     def update_song_info(self):
         """更新歌曲信息"""
-        if self.player.current_song:
+        if not self.player.playlist.items:
+            self.song_info.config(text="无歌曲")
+        elif self.player.current_song:
             self.song_info.config(text=f"当前播放：\n{self.player.current_song.name}")
 
     def toggle_play(self):
@@ -378,6 +496,4 @@ if __name__ == "__main__":
     except Exception as e:
         mylogger.error(f"Application error: {e}")
     finally:
-        # sdl2.sdlmixer.Mix_CloseAudio()
-        # sdl2.SDL_Quit()
         pygame.mixer.quit()

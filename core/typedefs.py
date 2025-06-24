@@ -4,21 +4,22 @@ import json
 import random
 import pathlib
 
-# import pygame as pg
+import pygame
 import keyboard
 import time
 from tinytag import TinyTag
 import math
 import os
 
-import sdl2
-import sdl2.ext
-import sdl2.sdlmixer
+# import sdl2
+# import sdl2.ext
+# import sdl2.sdl.mixer
 
-sdl2.SDL_Init(sdl2.SDL_INIT_AUDIO)
-sdl2.sdlmixer.Mix_OpenAudio(44100, sdl2.sdlmixer.MIX_DEFAULT_FORMAT, 2, 1024)
+# sdl2.SDL_Init(sdl2.SDL_INIT_AUDIO)
+# sdl2.sdl.mixer.Mix_OpenAudio(44100, sdl2.sdl.mixer.MIX_DEFAULT_FORMAT, 2, 1024)
 
-# pg.mixer.init()
+pygame.mixer.init()
+
 
 
 class Item:
@@ -31,7 +32,8 @@ class Item:
         filename: pathlib.Path | str,
         name: str | None = None,
         weight: float = 100.0,
-        time_long: float | None = None,
+        *args,
+        **kwargs,
     ):
         self._id: int = randint(Item.ID_MIN, Item.ID_MAX)
 
@@ -47,14 +49,19 @@ class Item:
         else:
             self.name: str = name
 
-        if time_long is None:
-            tag = TinyTag.get(self.filename)
-            self.time_long: float = tag.duration or -1
-            if self.time_long == -1:
-                mylogger.error(f"无法获取{self.filename}的时长")
-                raise ValueError("无法获取时长")
-        else:
-            self.time_long: float = time_long
+        tag = TinyTag.get(self.filename)
+
+        # 歌曲时长
+        self.time_long: float = tag.duration or -1
+        if self.time_long == -1:
+            mylogger.error(f"无法获取{self.filename}的时长")
+            raise ValueError("无法获取时长")
+
+        # 歌曲专辑
+        self.album: str = tag.album or "未知"
+
+        # 歌手
+        self.artist: str = tag.artist or "未知"
 
     def get_id(self) -> int:
         return self._id
@@ -79,37 +86,56 @@ class Item:
                 "name": self.name,
                 "time_long": self.time_long,
                 "weight": self.weight,
+                "album": self.album,
+                "artist": self.artist,
             }
         )
-
-    def get_song(self):
-        return sdl2.sdlmixer.Mix_LoadMUS(str(self.filename).encode())
 
     def play(self):
         mylogger.info("正在播放: %s" % self.filename)
 
-        # pg.mixer.init()
-        # pg.mixer.music.load(self.filename)
-        # pg.mixer.music.play()
-        # while pg.mixer.music.get_busy():
-        #     time.sleep(0.1)
-        music = self.get_song()
-        if not music:
-            mylogger.error(f"无法加载音频文件{self.filename}")
-            sdl2.SDL_Quit()
-            return
-
-        sdl2.sdlmixer.Mix_PlayMusic(music, 1)  # 播放音乐
-
-        while sdl2.sdlmixer.Mix_PlayingMusic():
+        pygame.mixer.init()
+        pygame.mixer.music.load(self.filename)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
             time.sleep(0.1)
+        # music = self.get_song()
+        # if not music:
+        #     mylogger.error(f"无法加载音频文件{self.filename}")
+        #     sdl2.SDL_Quit()
+        #     return
 
-        sdl2.sdlmixer.Mix_HaltMusic()  # 停止播放
-        sdl2.sdlmixer.Mix_FreeMusic(music)  # 释放音乐
+        # sdl2.sdl.mixer.Mix_PlayMusic(music, 1)  # 播放音乐
 
-        # 退出 SDL
-        sdl2.sdlmixer.Mix_CloseAudio()
-        sdl2.SDL_Quit()
+        # while sdl2.sdl.mixer.Mix_PlayingMusic():
+        #     time.sleep(0.1)
+
+        # sdl2.sdl.mixer.Mix_HaltMusic()  # 停止播放
+        # sdl2.sdl.mixer.Mix_FreeMusic(music)  # 释放音乐
+
+        # # 退出 SDL
+        # sdl2.sdl.mixer.Mix_CloseAudio()
+        # sdl2.SDL_Quit()
+
+    def stop_playing(self):
+        # sdl2.sdl.mixer.Mix_HaltMusic()  # 停止播放
+        # sdl2.SDL_Quit()
+        pygame.mixer.music.stop()
+
+    def continue_playing(self):
+        # sdl2.sdl.mixer.Mix_PlayMusic(self.get_song(), 1)  # 播放音乐
+        pygame.mixer.music.unpause()
+
+    def get_pos(self):
+        # return self.get_song().pos
+        return self.get_song().get_pos()
+
+    def set_pos(self, pos: int):
+        # self.get_song().pos = pos
+        self.get_song().set_pos(pos)
+
+    def get_song(self):
+        return pygame.mixer.music
 
 
 class PlaylistBase:
@@ -137,7 +163,7 @@ class PlaylistBase:
         self.items.append(item)
 
     def gen_from_list(self, items: list[Item]):
-        self.items = items.copy()
+        self.items = items
         self._check_ids_not_same_and_fix()
 
     def to_json(self):
@@ -156,9 +182,9 @@ class PlaylistBase:
 
     def from_json(self, json_str: str):
         items = json.loads(json_str)
-        for item in items:
-            del item["id"]
+        
         self.gen_from_list([Item(**item) for item in items])
+        
 
     def save_to_file(self):
         if not os.path.exists(os.path.dirname(self.save_path)):
@@ -168,10 +194,12 @@ class PlaylistBase:
         return self
 
     def load_from_file(self):
+
         if not os.path.exists(os.path.dirname(self.save_path)):
             os.makedirs(os.path.dirname(self.save_path))
         with open(self.save_path, "r", encoding="utf-8") as f:
             self.from_json(f.read())
+
         return self
 
     def _check_ids_not_same_and_fix(self):
@@ -179,6 +207,7 @@ class PlaylistBase:
         检测ID是否重复，如果重复则生成新的ID, 直到所有ID不重复
         注: 如果Item数量过多，可能需要较长时间, 如果Item数大于ID_MAX-ID_MIN，则会死循环
         """
+        mylogger.info("Checking IDs...")
         sorted_items = sorted(self.items, key=lambda x: x.get_id())
         for i in range(len(sorted_items) - 1):
             if sorted_items[i].get_id() == sorted_items[i + 1].get_id():
@@ -191,6 +220,7 @@ class PlaylistBase:
                 self._check_ids_not_same_and_fix()
 
         self.items = sorted_items.copy()
+        mylogger.info("IDs checked and fixed")
 
     def gen_from_dir(self, dir_path: str, ext: str = "mp3"):
         """
@@ -199,13 +229,15 @@ class PlaylistBase:
         mylogger.info(f"正在从{dir_path}中生成播放列表, 请稍等")
         mylogger.info(f"文件扩展名: {ext}")
 
-        items = []
+        self.items = []
         for file in pathlib.Path(dir_path).glob(f"*.{ext}"):
             try:
                 item = Item(file)
-                items.append(item)
+                self.items.append(item)
             except ValueError:
                 mylogger.warning(f"无法获取{file}的时长, 跳过")
+
+        return self
 
         self.gen_from_list(items)
 
@@ -237,9 +269,10 @@ class Playlist(PlaylistBase):
         )
 
     def random_recommend(self) -> Item:
-        return random.choices(self.items, weights=[item.weight for item in self.items])[
+        return random.choices(self.items, weights=[item.weight*0.01 for item in self.items],k=1)[
             0
         ]
+
 
     def play_one(self):
         item = self.random_recommend()
@@ -251,7 +284,7 @@ class Playlist(PlaylistBase):
         item_music = None
 
         def on_key_pressed(event):
-            TWICE_PRESSING_TIME=0.8
+            TWICE_PRESSING_TIME = 0.8
 
             nonlocal item_music
             nonlocal has_pressed_capslock
@@ -272,14 +305,15 @@ class Playlist(PlaylistBase):
                         if item_music is None:
                             mylogger.error("还没有播放任何音乐")
                             return
-                        sdl2.sdlmixer.Mix_HaltMusic()  # 停止播放
-                        sdl2.sdlmixer.Mix_FreeMusic(item_music)  # 释放音乐
+                        item_music.stop()
                         item_music = None
                         has_pressed_capslock = False
                         return
                     else:
                         has_pressed_capslock = False
-                        mylogger.info("想切歌要连续按两下CapsLock, 你按得太慢了, 快一点呢? 再试一次: 双击CapsLock!")
+                        mylogger.info(
+                            "想切歌要连续按两下CapsLock, 你按得太慢了, 快一点呢? 再试一次: 双击CapsLock!"
+                        )
 
         keyboard.hook(on_key_pressed)
         while True:
@@ -291,13 +325,12 @@ class Playlist(PlaylistBase):
             item_music = itm.get_song()
             if not item_music:
                 mylogger.error(f"无法加载音频文件{itm.filename}")
-                sdl2.SDL_Quit()
                 return
-            sdl2.sdlmixer.Mix_PlayMusic(item_music, 1)  # 播放音乐
-            while sdl2.sdlmixer.Mix_PlayingMusic():
+
+            itm.play()
+
+            while pygame.mixer.music.get_busy():
                 time.sleep(0.1)
-            sdl2.sdlmixer.Mix_HaltMusic()  # 停止播放
-            sdl2.sdlmixer.Mix_FreeMusic(item_music)  # 释放音乐
 
             end_time = time.time()
             prg = (end_time - start_time) / itm.time_long * 100

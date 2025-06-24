@@ -25,3 +25,5 @@ playlist
 uv.lock
 dev_cache
 gui
+*.spec
+!gui.spec

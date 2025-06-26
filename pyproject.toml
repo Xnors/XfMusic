@@ -1,7 +1,7 @@
 [project]
-name = "xmusic"
+name = "xfmusic"
 version = "0.1.0"
-description = "Add your description here"
+description = "这是一个本地的基于用户喜好自动推荐的音乐播放器"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,6 +20,3 @@ default = true
 dev = [
     "pyinstaller>=6.14.1",
 ]
-
-[project.scripts]
-xmusic = "xmusic:main"

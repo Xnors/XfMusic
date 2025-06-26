@@ -2920,7 +2920,7 @@ wheels = [
 ]
 
 [[package]]
-name = "xmusic"
+name = "xfmusic"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

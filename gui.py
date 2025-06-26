@@ -6,6 +6,8 @@ from core.logger import mylogger
 from tinytag import TinyTag
 import keyboard
 import pygame
+from tkinter import filedialog
+import os
 
 pygame.mixer.init()
 
@@ -105,6 +107,9 @@ class MusicPlayer:
 
     def check_song_end(self):
         """检查歌曲是否播放结束"""
+        if not self.is_playing:
+            return False
+            
         if self.current_song and not pygame.mixer.music.get_busy():
             # 歌曲播放结束，更新权重
             try:
@@ -276,8 +281,7 @@ class PlayerGUI:
 
     def import_from_directory(self):
         """从目录导入歌曲"""
-        from tkinter import filedialog
-        import os
+        
 
         dir_path = filedialog.askdirectory(title="选择音乐目录")
         if dir_path:
@@ -487,7 +491,7 @@ class PlayerGUI:
         self.root.mainloop()
 
 
-if __name__ == "__main__":
+def main():
     # 创建播放器和GUI
     try:
         player = MusicPlayer()
@@ -497,3 +501,7 @@ if __name__ == "__main__":
         mylogger.error(f"Application error: {e}")
     finally:
         pygame.mixer.quit()
+
+
+if __name__ == "__main__":
+    main()

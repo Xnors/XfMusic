@@ -452,6 +452,10 @@ class PlayerGUI:
             self.song_info.config(text="无歌曲")
         elif self.player.current_song:
             self.song_info.config(text=f"当前播放：\n{self.player.current_song.name}")
+        else:
+            self.song_info.config(text="准备就绪")
+            self.next_song()
+        self.root.update()  # 强制刷新UI
 
     def toggle_play(self):
         """播放/暂停切换"""

@@ -93,15 +93,17 @@ class MusicPlayer:
             if self.last_song_start_time <= 0:
                 mylogger.error("last_song_start_time is not set!")
 
+            # 添加调试日志
+            elapsed = time.time() - self.last_song_start_time
+            mylogger.debug(f"elapsed time: {elapsed}, song duration: {self.current_song.time_long}")
+            
+            # 确保prg在0-100范围内
+            prg = min(100, max(0, 100 * (elapsed / self.current_song.time_long)))
+            mylogger.debug(f"calculated prg: {prg}")
+            
             self.playlist.upgrade_item_weight(
                 self.current_song,
-                prg=(
-                    100
-                    * (
-                        (time.time() - self.last_song_start_time)
-                        / self.current_song.time_long
-                    )
-                ),
+                prg=prg,
             )
         return self.play_song(self.get_random_song())
 
@@ -415,8 +417,6 @@ class PlayerGUI:
             popup = tk.Toplevel(self.root)
             popup.title("歌曲信息")
             popup.geometry("300x150")
-
-            # 添加内容, 左对齐
 
             ttk.Label(
                 popup,
